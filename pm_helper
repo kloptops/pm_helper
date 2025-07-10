@@ -1,0 +1,461 @@
+#!/bin/sh
+#
+# SPDX-License-Identifier: MIT
+#
+# pm_helper - A POSIX-compliant tool to assist with installing and managing
+# test ports across multiple devices running various custom firmware.
+#
+
+# ==============================================================================
+# CHANGELOG
+# ==============================================================================
+#
+# v3.5 - (Current) Added Remote Command Debugging
+#      - Added a `debug()` function to print commands before execution.
+#      - Implemented debug logging for all remote commands (`ssh`, `scp`, `rsync`)
+#        across all functions to improve visibility and troubleshooting.
+#
+# v3.4 - Fixed `rsync` Pathing in Update Command
+#      - Resolved a bug where `rsync` on the remote device would incorrectly
+#        prepend the user's home directory to the destination path.
+#
+# v3.3 - Final Bug Fixes and Polish
+#      - Fixed `scp` command failure by correcting argument quoting.
+#      - Fixed help text printing raw ANSI escape codes.
+#      - Corrected `harbourmaster install` pathing to use a reliable relative path.
+#
+# v3.2 - Added a persistent changelog to the script header.
+#
+# v3.1 - Bug Fixes & Refinements
+#      - Fixed critical loop bug where only the first host was processed.
+#      - Updated CFW definitions with user-provided corrections.
+#
+# v3.0 - POSIX `sh` Compliance Rewrite
+#      - Major rewrite for POSIX `sh` compliance for maximum portability.
+#
+# v2.0 - Bash 3.2+ Compatibility
+#      - Addressed Bash v4+ dependency by removing associative arrays.
+#
+# v1.0 - Initial Release
+#      - First version created with core functionality using Bash 4+ features.
+#
+# ==============================================================================
+
+# --- Script Setup ---
+set -u
+
+# --- Color Definitions ---
+C_RESET='\033[0m'
+C_RED='\033[0;31m'
+C_GREEN='\033[0;32m'
+C_YELLOW='\033[0;33m'
+C_BLUE='\033[0;34m'
+C_CYAN='\033[0;36m'
+C_BOLD='\033[1m'
+
+# --- Helper Functions ---
+debug() { printf "%b>>>%b %b%s%b\n" "$C_YELLOW" "$C_RESET" "$C_BOLD" "$1" "$C_RESET"; } 
+info() { printf "%b==>%b %b%s%b\n" "$C_CYAN" "$C_RESET" "$C_BOLD" "$1" "$C_RESET"; }
+success() { printf "%b-->%b %s\n" "$C_GREEN" "$C_RESET" "$1"; }
+warn() { printf "%b-->%b %s\n" "$C_YELLOW" "$C_RESET" "$1"; }
+error() { printf "%b!!!>%b %b%s%b\n" "$C_RED" "$C_RESET" "$C_BOLD" "$1" "$C_RESET" >&2; }
+die() { error "$1"; exit 1; }
+
+# ==============================================================================
+# CFW INFORMATION
+# ==============================================================================
+
+KNOWN_CFWS="muOS muOS2 AmberELEC ROCKNIX JELOS UnofficialOS ArkOS ArkOS2 Knulli Batocera"
+
+# muOS (Single SD)
+CFW_muOS_USERNAME="root"
+CFW_muOS_PORTMASTER="/mnt/mmc/MUOS/PortMaster"
+CFW_muOS_PORT_DATA="/mnt/mmc/ports"
+CFW_muOS_PORT_SCRIPT="/mnt/mmc/ROMS/Ports"
+# muOS2 (Dual SD)
+CFW_muOS2_USERNAME="root"
+CFW_muOS2_PORTMASTER="/mnt/mmc/MUOS/PortMaster"
+CFW_muOS2_PORT_DATA="/mnt/sdcard/ports"
+CFW_muOS2_PORT_SCRIPT="/mnt/sdcard/ROMS/Ports"
+# AmberELEC
+CFW_AmberELEC_USERNAME="root"
+CFW_AmberELEC_PORTMASTER="/roms/ports/PortMaster"
+CFW_AmberELEC_PORT_DATA="/roms/ports"
+CFW_AmberELEC_PORT_SCRIPT="/roms/ports"
+# ROCKNIX
+CFW_ROCKNIX_USERNAME="root"
+CFW_ROCKNIX_PORTMASTER="/roms/ports/PortMaster"
+CFW_ROCKNIX_PORT_DATA="/roms/ports"
+CFW_ROCKNIX_PORT_SCRIPT="/roms/ports"
+# JELOS
+CFW_JELOS_USERNAME="root"
+CFW_JELOS_PORTMASTER="/roms/ports/PortMaster"
+CFW_JELOS_PORT_DATA="/roms/ports"
+CFW_JELOS_PORT_SCRIPT="/roms/ports"
+# UnofficialOS (was uOS)
+CFW_UnofficialOS_USERNAME="root"
+CFW_UnofficialOS_PORTMASTER="/roms/ports/PortMaster"
+CFW_UnofficialOS_PORT_DATA="/roms/ports"
+CFW_UnofficialOS_PORT_SCRIPT="/roms/ports"
+# ArkOS (Single SD)
+CFW_ArkOS_USERNAME="ark"
+CFW_ArkOS_PORTMASTER="/roms/tools/PortMaster"
+CFW_ArkOS_PORT_DATA="/roms/ports"
+CFW_ArkOS_PORT_SCRIPT="/roms/ports"
+# ArkOS2 (Dual SD)
+CFW_ArkOS2_USERNAME="ark"
+CFW_ArkOS2_PORTMASTER="/roms2/tools/PortMaster"
+CFW_ArkOS2_PORT_DATA="/roms2/ports"
+CFW_ArkOS2_PORT_SCRIPT="/roms2/ports"
+# Knulli
+CFW_Knulli_USERNAME="root"
+CFW_Knulli_PORTMASTER="/userdata/system/.local/share/PortMaster"
+CFW_Knulli_PORT_DATA="/userdata/roms/ports"
+CFW_Knulli_PORT_SCRIPT="/userdata/roms/ports"
+# Batocera
+CFW_Batocera_USERNAME="root"
+CFW_Batocera_PORTMASTER="/userdata/system/.local/share/PortMaster"
+CFW_Batocera_PORT_DATA="/userdata/roms/ports"
+CFW_Batocera_PORT_SCRIPT="/userdata/roms/ports"
+
+load_aliases() {
+    _process_cfg() {
+        cfg_file=$1
+        if [ -f "$cfg_file" ]; then
+            while IFS='=' read -r key val; do
+                case "$key" in
+                    ''|'#'*) continue ;;
+                esac
+                key=$(echo "$key" | tr -d '[:space:]')
+                val=$(echo "$val" | tr -d '[:space:]')
+                if [ -n "$key" ] && [ -n "$val" ]; then
+                    eval "ALIAS_${key}=\"\$val\""
+                fi
+            done < "$cfg_file"
+        fi
+    }
+    _process_cfg "$HOME/.config/pm_devices.cfg"
+    _process_cfg "$PWD/pm_devices.cfg"
+}
+
+resolve_host_string() {
+    host_str=$1
+    cfw=""
+    ip=""
+    eval "resolved_alias=\${ALIAS_${host_str}:-\"\"}"
+    if [ -n "$resolved_alias" ]; then
+        host_str=$resolved_alias
+    fi
+    case "$host_str" in
+        *,*)
+            ip=$(echo "$host_str" | cut -d, -f2)
+            cfw=$(echo "$host_str" | cut -d, -f1)
+            ;;
+        *)
+            error "Invalid host format: '$host_str'. Must be an alias or 'CFW,IP'."
+            return 1
+            ;;
+    esac
+    eval "user_var=\${CFW_${cfw}_USERNAME:-\"\"}"
+    if [ -z "$user_var" ]; then
+        error "Unknown CFW: '$cfw'. Supported: $KNOWN_CFWS"
+        return 1
+    fi
+    eval "pm_var=\${CFW_${cfw}_PORTMASTER}"
+    eval "data_var=\${CFW_${cfw}_PORT_DATA}"
+    eval "script_var=\${CFW_${cfw}_PORT_SCRIPT}"
+    echo "${cfw};${ip};${user_var};${pm_var};${data_var};${script_var}"
+}
+
+parse_host_list() {
+    hosts_input=$1
+    old_ifs=$IFS
+    IFS=':'
+    for item in $hosts_input; do
+        if [ -n "$item" ]; then
+            resolved=$(resolve_host_string "$item")
+            if [ $? -eq 0 ]; then
+                echo "$resolved"
+            fi
+        fi
+    done | sort -u
+    IFS=$old_ifs
+}
+
+# ==============================================================================
+# COMMAND IMPLEMENTATIONS
+# ==============================================================================
+
+cmd_install() {
+    [ $# -lt 2 ] && die "Usage: pm_helper install <hosts> <zip_file>"
+    hosts_str=$1
+    zip_file=$2
+    zip_basename=$(basename "$zip_file")
+
+    resolved_hosts=$(parse_host_list "$hosts_str")
+    [ -z "$resolved_hosts" ] && die "No valid hosts were resolved. Aborting."
+    [ ! -f "$zip_file" ] && die "File not found: $zip_file"
+    
+    host_count=$(echo "$resolved_hosts" | wc -l | tr -d ' ')
+    info "Installing '$zip_basename' on $host_count host(s)..."
+
+    while IFS=';' read -r cfw ip user pm_path data_path script_path; do
+        printf "\n%b>>> Processing %b%s @ %s%b\n" "$C_BLUE" "$C_BOLD" "$cfw" "$ip" "$C_RESET"
+
+        info "Copying '$zip_basename' to $user@$ip:~/"
+        debug "scp \"$zip_file\" \"$user@$ip:~/\""
+        if ! scp "$zip_file" "$user@$ip:~/" < /dev/null; then
+            error "Failed to scp file to $ip. Skipping."
+            continue
+        fi
+
+        info "Running harbourmaster to install..."
+        remote_install_path="./$zip_basename"
+        remote_cmd="\"${pm_path}/harbourmaster\" --no-check install \"${remote_install_path}\""
+        
+        debug "ssh $user@$ip \"$remote_cmd\""
+        if ! ssh "$user@$ip" "$remote_cmd" < /dev/null; then
+            error "harbourmaster command failed on $ip. Please check device logs."
+        else
+            success "Installation successful on $ip."
+        fi
+    done <<EOF
+$resolved_hosts
+EOF
+}
+
+cmd_update() {
+    [ $# -lt 3 ] && die "Usage: pm_helper update <hosts> <port_script.sh> <port_directory/>"
+    hosts_str=$1
+    port_script=$2
+    port_dir=$3
+
+    resolved_hosts=$(parse_host_list "$hosts_str")
+    [ -z "$resolved_hosts" ] && die "No valid hosts were resolved. Aborting."
+    [ ! -f "$port_script" ] && die "Port script not found: '$port_script'"
+    [ ! -d "$port_dir" ] && die "Port directory not found: '$port_dir'"
+
+    host_count=$(echo "$resolved_hosts" | wc -l | tr -d ' ')
+    info "Updating script and data on $host_count host(s)..."
+    
+    while IFS=';' read -r cfw ip user pm_path data_path script_path; do
+        printf "\n%b>>> Processing %b%s @ %s%b\n" "$C_BLUE" "$C_BOLD" "$cfw" "$ip" "$C_RESET"
+
+        info "Syncing Port Script: '$port_script'"
+        debug "rsync -avz --no-g --no-o \"$port_script\" \"$user@$ip:$script_path/\""
+        if ! rsync -avz --no-g --no-o "$port_script" "$user@$ip:$script_path/" < /dev/null; then
+            error "rsync of script failed for $ip. Skipping."
+            continue
+        fi
+
+        info "Syncing Port Data: '$port_dir'"
+        debug "rsync -avz --no-g --no-o \"$port_dir/\" \"$user@$ip:$data_path/$(basename "$port_dir")/\""
+        if ! rsync -avz --no-g --no-o "$port_dir/" "$user@$ip:$data_path/$(basename "$port_dir")/" < /dev/null; then
+            error "rsync of data directory failed for $ip."
+        else
+            success "Update successful on $ip."
+        fi
+    done <<EOF
+$resolved_hosts
+EOF
+}
+
+cmd_harbourmaster() {
+    [ $# -lt 2 ] && die "Usage: pm_helper harbourmaster <hosts> <command>"
+    hosts_str=$1
+    shift
+    passed_command="$*"
+
+    resolved_hosts=$(parse_host_list "$hosts_str")
+    [ -z "$resolved_hosts" ] && die "No valid hosts were resolved. Aborting."
+    host_count=$(echo "$resolved_hosts" | wc -l | tr -d ' ')
+    info "Executing on $host_count host(s): harbourmaster $passed_command"
+
+    while IFS=';' read -r cfw ip user pm_path data_path script_path; do
+        printf "\n%b>>> Processing %b%s @ %s%b\n" "$C_BLUE" "$C_BOLD" "$cfw" "$ip" "$C_RESET"
+        remote_cmd="\"${pm_path}/harbourmaster\" $passed_command"
+        debug "ssh $user@$ip \"$remote_cmd\""
+        if ! ssh "$user@$ip" "$remote_cmd" < /dev/null; then
+            error "Command failed on $ip."
+        else
+            success "Command successful on $ip."
+        fi
+    done <<EOF
+$resolved_hosts
+EOF
+}
+
+cmd_scp() {
+    [ $# -lt 3 ] && die "Usage: pm_helper scp <hosts> <DEST_DIR/path> <file1> [file2...]"
+    hosts_str=$1
+    dest_path_str=$2
+    shift 2
+    
+    resolved_hosts=$(parse_host_list "$hosts_str")
+    [ -z "$resolved_hosts" ] && die "No valid hosts were resolved. Aborting."
+    [ $# -eq 0 ] && die "No files specified to copy."
+
+    case "$dest_path_str" in
+        */*)
+            dest_base=$(echo "$dest_path_str" | cut -d/ -f1)
+            dest_subdir="/$(echo "$dest_path_str" | cut -d/ -f2-)"
+            ;;
+        *)
+            dest_base=$dest_path_str
+            dest_subdir=""
+            ;;
+    esac
+    
+    host_count=$(echo "$resolved_hosts" | wc -l | tr -d ' ')
+    info "Copying $# file(s) to '$dest_path_str' on $host_count host(s)..."
+
+    while IFS=';' read -r cfw ip user pm_path data_path script_path; do
+        printf "\n%b>>> Processing %b%s @ %s%b\n" "$C_BLUE" "$C_BOLD" "$cfw" "$ip" "$C_RESET"
+
+        remote_base_path=""
+        case "$dest_base" in
+            PORT_SCRIPT) remote_base_path=$script_path ;;
+            PORT_DATA) remote_base_path=$data_path ;;
+            PORTMASTER) remote_base_path=$pm_path ;;
+            HOME) remote_base_path="~" ;;
+            *) error "Invalid destination base '$dest_base'. Must be PORT_SCRIPT, PORT_DATA, PORTMASTER, or HOME."; continue ;;
+        esac
+
+        final_remote_path="${remote_base_path}${dest_subdir}"
+        
+        info "Ensuring remote directory exists: $final_remote_path"
+        mkdir_cmd="mkdir -p \"$final_remote_path\""
+        debug "ssh $user@$ip \"$mkdir_cmd\""
+        if ! ssh "$user@$ip" "$mkdir_cmd" < /dev/null; then
+             error "Could not create remote directory on $ip. Skipping."
+             continue
+        fi
+
+        info "Copying files to $user@$ip:$final_remote_path"
+        debug "scp -r $@ \"$user@$ip:$final_remote_path\""
+        if ! scp -r "$@" "$user@$ip:$final_remote_path" < /dev/null; then
+            error "scp command failed for $ip."
+        else
+            success "Copy successful to $ip."
+        fi
+    done <<EOF
+$resolved_hosts
+EOF
+}
+
+cmd_hosts() {
+    info "Host aliases defined in configuration files"
+    printf "%bNote: Local definitions ($PWD/pm_devices.cfg) override global ones.%b\n" "$C_YELLOW" "$C_RESET"
+    global_cfg="$HOME/.config/pm_devices.cfg"
+    printf "\n%b>>> Global Config: %s%b\n" "$C_BLUE" "$global_cfg" "$C_RESET"
+    if [ -f "$global_cfg" ]; then
+        grep -v '^\s*#' "$global_cfg" | grep .
+    else
+        warn "File not found."
+    fi
+    local_cfg="$PWD/pm_devices.cfg"
+    printf "\n%b>>> Local Config: %s%b\n" "$C_BLUE" "$local_cfg" "$C_RESET"
+    if [ -f "$local_cfg" ]; then
+        grep -v '^\s*#' "$local_cfg" | grep .
+    else
+        warn "File not found."
+    fi
+    printf "\n%b>>> Effective Aliases (after overrides)%b\n" "$C_BLUE" "$C_RESET"
+    effective_aliases=$(set | grep '^ALIAS_' | sed 's/ALIAS_//' | sort)
+    if [ -n "$effective_aliases" ]; then
+        echo "$effective_aliases" | while IFS='=' read -r key val; do
+             printf "%b%s%b = %s\n" "$C_BOLD" "$key" "$C_RESET" "$val"
+        done
+    else
+        warn "No aliases defined."
+    fi
+}
+
+# ==============================================================================
+# HELP SYSTEM
+# ==============================================================================
+show_help() {
+    # FIX: Use printf with %b to correctly interpret ANSI color codes.
+    printf "%b\n" "${C_BOLD}pm_helper${C_RESET} - A tool for managing test ports on multiple devices."
+    printf "\n"
+    printf "%b\n" "${C_BOLD}Usage:${C_RESET} pm_helper <command> [options...]"
+    printf "\n"
+    printf "%b\n" "${C_YELLOW}Available Commands:${C_RESET}"
+    printf "%b\n" "  ${C_CYAN}install${C_RESET}         Install a port .zip file."
+    printf "%b\n" "  ${C_CYAN}update${C_RESET}          Update a port's script and data directory."
+    printf "%b\n" "  ${C_CYAN}harbourmaster${C_RESET}   Run a raw command with harbourmaster."
+    printf "%b\n" "  ${C_CYAN}scp${C_RESET}             Copy files to a predefined directory on devices."
+    printf "%b\n" "  ${C_CYAN}ssh${C_RESET}             Connect to a single device."
+    printf "%b\n" "  ${C_CYAN}hosts${C_RESET}           List all configured host aliases."
+    printf "%b\n" "  ${C_CYAN}help${C_RESET}            Show this help message."
+    printf "\n"
+    printf "%b\n" "Run '${C_BOLD}pm_helper <command> --help${C_RESET}' for command-specific help."
+}
+
+show_cmd_help() {
+    cmd=$1
+    case "$cmd" in
+    install)
+        printf "%b\n" "${C_BOLD}Usage: pm_helper install <hosts> <zip_file>${C_RESET}"
+        printf "%b\n" "Copies a port .zip file to the host(s) and installs it using harbourmaster."
+        ;;
+    update)
+        printf "%b\n" "${C_BOLD}Usage: pm_helper update <hosts> <port_script.sh> <port_directory/>${C_RESET}"
+        printf "%b\n" "Updates a port by syncing a new script and data directory to the host(s)."
+        ;;
+    harbourmaster)
+        printf "%b\n" "${C_BOLD}Usage: pm_helper harbourmaster <hosts> <command_and_args>${C_RESET}"
+        printf "%b\n" "Executes a raw command via the harbourmaster executable on the host(s)."
+        ;;
+    scp)
+        printf "%b\n" "${C_BOLD}Usage: pm_helper scp <hosts> <destination> <file1> [file2...]${C_RESET}"
+        printf "%b\n" "Copies files to a predefined location on host(s): PORT_SCRIPT, PORT_DATA, PORTMASTER, HOME"
+        ;;
+    ssh)
+        printf "%b\n" "${C_BOLD}Usage: pm_helper ssh <single_host>${C_RESET}"
+        printf "%b\n" "Opens an interactive SSH session to a single specified host."
+        ;;
+    hosts)
+        printf "%b\n" "${C_BOLD}Usage: pm_helper hosts${C_RESET}"
+        printf "%b\n" "Displays all configured host aliases."
+        ;;
+    *)
+        error "No help available for unknown command '$cmd'"
+        ;;
+    esac
+}
+
+# ==============================================================================
+# MAIN SCRIPT LOGIC
+# ==============================================================================
+
+# Check for command-specific help request
+for arg in "$@"; do
+    if [ "$arg" = "--help" ]; then
+        show_cmd_help "$1"
+        exit 0
+    fi
+done
+
+COMMAND=${1:-""}
+if [ -z "$COMMAND" ]; then
+    show_help
+    exit 1
+fi
+shift
+
+load_aliases
+
+case "$COMMAND" in
+    install|update|harbourmaster|scp|ssh|hosts)
+        "cmd_$COMMAND" "$@"
+        ;;
+    help)
+        show_help
+        ;;
+    *)
+        error "Unknown command: '$COMMAND'"
+        show_help
+        exit 1
+        ;;
+esac
