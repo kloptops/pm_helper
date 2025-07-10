@@ -10,6 +10,12 @@
 # CHANGELOG
 # ==============================================================================
 #
+# v3.7 - (Current) Added 'ALL' Keyword for Hosts
+#      - Added the ability to use 'ALL' as the <hosts> argument to target every
+#        defined alias in the config files for install, update, scp, and
+#        harbourmaster commands.
+#      - The `ssh` command now explicitly disallows 'ALL'.
+#
 # v3.6 - (Current) Added Device Management Commands
 #      - Added `host_add` command to add or update a host alias in the
 #        local or global configuration file.
@@ -421,7 +427,8 @@ cmd_hosts() {
 
 cmd_host_add() {
     global_flag=0
-    if [ "$1" = "-g" ]; then
+
+    if [ $# -gt 0 ] && [ "$1" = "-g" ]; then
         global_flag=1
         shift
     fi
@@ -430,6 +437,12 @@ cmd_host_add() {
     alias=$1
     cfw=$2
     ip=$3
+
+    eval "user_var=\${CFW_${cfw}_USERNAME:-\"\"}"
+    if [ -z "$user_var" ]; then
+        error "Unknown CFW: '$cfw'. Supported: $KNOWN_CFWS"
+        return 1
+    fi
 
     if [ $global_flag -eq 1 ]; then
         cfg_file="$HOME/.config/pm_devices.cfg"
@@ -466,7 +479,7 @@ cmd_host_add() {
 
 cmd_host_del() {
     global_flag=0
-    if [ "$1" = "-g" ]; then
+    if [ $# -gt 0 ] && [ "$1" = "-g" ]; then
         global_flag=1
         shift
     fi
@@ -531,37 +544,53 @@ show_cmd_help() {
     case "$cmd" in
     install)
         printf "%b\n" "${C_BOLD}Usage: pm_helper install <hosts> <zip_file>${C_RESET}"
+        printf "\n"
         printf "%b\n" "Copies a port .zip file to the host(s) and installs it using harbourmaster."
+        printf "\n"
         ;;
     update)
         printf "%b\n" "${C_BOLD}Usage: pm_helper update <hosts> <port_script.sh> <port_directory/>${C_RESET}"
+        printf "\n"
         printf "%b\n" "Updates a port by syncing a new script and data directory to the host(s)."
+        printf "\n"
         ;;
     harbourmaster)
         printf "%b\n" "${C_BOLD}Usage: pm_helper harbourmaster <hosts> <command_and_args>${C_RESET}"
+        printf "\n"
         printf "%b\n" "Executes a raw command via the harbourmaster executable on the host(s)."
+        printf "\n"
         ;;
     scp)
         printf "%b\n" "${C_BOLD}Usage: pm_helper scp <hosts> <destination> <file1> [file2...]${C_RESET}"
+        printf "\n"
         printf "%b\n" "Copies files to a predefined location on host(s): PORT_SCRIPT, PORT_DATA, PORTMASTER, HOME"
+        printf "\n"
         ;;
     ssh)
         printf "%b\n" "${C_BOLD}Usage: pm_helper ssh <single_host>${C_RESET}"
+        printf "\n"
         printf "%b\n" "Opens an interactive SSH session to a single specified host."
+        printf "\n"
         ;;
     hosts)
         printf "%b\n" "${C_BOLD}Usage: pm_helper hosts${C_RESET}"
+        printf "\n"
         printf "%b\n" "Displays all configured host aliases."
+        printf "\n"
         ;;
     host_add)
         printf "%b\n" "${C_BOLD}Usage: pm_helper host_add [-g] <alias> <cfw> <ipaddress>${C_RESET}"
+        printf "\n"
         printf "%b\n" "Adds or updates a host alias in the configuration file."
         printf "%b\n" "  ${C_CYAN}-g${C_RESET} : Modify the global config (~/.config/pm_devices.cfg) instead of the local one."
+        printf "\n"
         ;;
     host_del)
         printf "%b\n" "${C_BOLD}Usage: pm_helper host_del [-g] <alias>${C_RESET}"
+        printf "\n"
         printf "%b\n" "Deletes a host alias from the configuration file."
         printf "%b\n" "  ${C_CYAN}-g${C_RESET} : Modify the global config instead of the local one."
+        printf "\n"
         ;;
     *)
         error "No help available for unknown command '$cmd'"
