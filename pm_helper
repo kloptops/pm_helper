@@ -125,6 +125,16 @@ CFW_Batocera_PORTMASTER="/userdata/system/.local/share/PortMaster"
 CFW_Batocera_PORT_DATA="/userdata/roms/ports"
 CFW_Batocera_PORT_SCRIPT="/userdata/roms/ports"
 
+# ==============================================================================
+# HOST STUFF
+# ==============================================================================
+
+get_all_aliases_string() {
+    # Use `set` to list all variables, filter for our aliases, format the output,
+    # and convert the newline-separated list into a colon-separated one.
+    set | grep '^ALIAS_' | sed 's/ALIAS_//' | cut -d'=' -f1 | tr '\n' ':' | sed 's/:$//'
+}
+
 load_aliases() {
     _process_cfg() {
         cfg_file=$1
@@ -199,6 +209,13 @@ cmd_install() {
     zip_file=$2
     zip_basename=$(basename "$zip_file")
 
+    if [ "$hosts_str" = "ALL" ]; then
+        info "Resolving 'ALL' to all defined hosts..."
+        hosts_str=$(get_all_aliases_string)
+        if [ -z "$hosts_str" ]; then die "No host aliases are defined. Cannot use 'ALL'."; fi
+        debug "Expanded 'ALL' to: $hosts_str"
+    fi
+
     resolved_hosts=$(parse_host_list "$hosts_str")
     [ -z "$resolved_hosts" ] && die "No valid hosts were resolved. Aborting."
     [ ! -f "$zip_file" ] && die "File not found: $zip_file"
@@ -237,6 +254,13 @@ cmd_update() {
     port_script=$2
     port_dir=$3
 
+    if [ "$hosts_str" = "ALL" ]; then
+        info "Resolving 'ALL' to all defined hosts..."
+        hosts_str=$(get_all_aliases_string)
+        if [ -z "$hosts_str" ]; then die "No host aliases are defined. Cannot use 'ALL'."; fi
+        debug "Expanded 'ALL' to: $hosts_str"
+    fi
+
     resolved_hosts=$(parse_host_list "$hosts_str")
     [ -z "$resolved_hosts" ] && die "No valid hosts were resolved. Aborting."
     [ ! -f "$port_script" ] && die "Port script not found: '$port_script'"
@@ -273,6 +297,13 @@ cmd_harbourmaster() {
     shift
     passed_command="$*"
 
+    if [ "$hosts_str" = "ALL" ]; then
+        info "Resolving 'ALL' to all defined hosts..."
+        hosts_str=$(get_all_aliases_string)
+        if [ -z "$hosts_str" ]; then die "No host aliases are defined. Cannot use 'ALL'."; fi
+        debug "Expanded 'ALL' to: $hosts_str"
+    fi
+
     resolved_hosts=$(parse_host_list "$hosts_str")
     [ -z "$resolved_hosts" ] && die "No valid hosts were resolved. Aborting."
     host_count=$(echo "$resolved_hosts" | wc -l | tr -d ' ')
@@ -297,7 +328,14 @@ cmd_scp() {
     hosts_str=$1
     dest_path_str=$2
     shift 2
-    
+
+    if [ "$hosts_str" = "ALL" ]; then
+        info "Resolving 'ALL' to all defined hosts..."
+        hosts_str=$(get_all_aliases_string)
+        if [ -z "$hosts_str" ]; then die "No host aliases are defined. Cannot use 'ALL'."; fi
+        debug "Expanded 'ALL' to: $hosts_str"
+    fi
+
     resolved_hosts=$(parse_host_list "$hosts_str")
     [ -z "$resolved_hosts" ] && die "No valid hosts were resolved. Aborting."
     [ $# -eq 0 ] && die "No files specified to copy."
@@ -355,11 +393,13 @@ cmd_hosts() {
     printf "%bNote: Local definitions ($PWD/pm_devices.cfg) override global ones.%b\n" "$C_YELLOW" "$C_RESET"
     global_cfg="$HOME/.config/pm_devices.cfg"
     printf "\n%b>>> Global Config: %s%b\n" "$C_BLUE" "$global_cfg" "$C_RESET"
+
     if [ -f "$global_cfg" ]; then
         grep -v '^\s*#' "$global_cfg" | grep .
     else
         warn "File not found."
     fi
+
     local_cfg="$PWD/pm_devices.cfg"
     printf "\n%b>>> Local Config: %s%b\n" "$C_BLUE" "$local_cfg" "$C_RESET"
     if [ -f "$local_cfg" ]; then
@@ -367,6 +407,7 @@ cmd_hosts() {
     else
         warn "File not found."
     fi
+
     printf "\n%b>>> Effective Aliases (after overrides)%b\n" "$C_BLUE" "$C_RESET"
     effective_aliases=$(set | grep '^ALIAS_' | sed 's/ALIAS_//' | sort)
     if [ -n "$effective_aliases" ]; then

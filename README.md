@@ -5,10 +5,11 @@
 ## Features
 
 -   **Multi-Device Management**: Run commands on multiple devices simultaneously.
--   **Alias System**: Define simple, memorable aliases for your devices so you don't have to remember IP addresses.
+-   **Host Alias System**: Define simple, memorable aliases for your devices so you don't have to remember IP addresses.
+-   **CLI Host Management**: Add, update, and delete host aliases directly from the command line.
+-   **Target All Devices**: Use the special `ALL` keyword to run commands on every configured device at once.
 -   **Simplified Commands**: Wraps common `ssh`, `scp`, and `rsync` tasks into easy-to-use commands (`install`, `update`, `scp`).
 -   **CFW Aware**: Knows the correct file paths for various popular custom firmwares (ArkOS, AmberELEC, muOS, JELOS, etc.).
--   **Direct `harbourmaster` Access**: Pass commands directly to the `harbourmaster` executable on remote devices.
 -   **Portable**: Written in POSIX-compliant `sh` for maximum compatibility across systems (including macOS).
 
 ## Prerequisites
@@ -38,7 +39,7 @@
 
 ## Configuration
 
-`pm_helper` uses a simple configuration file named `pm_devices.cfg` to define your devices and their aliases.
+`pm_helper` uses a simple configuration file named `pm_devices.cfg` to define your devices. You can manage this file manually or by using the `host_add` and `host_del` commands.
 
 The script checks for this file in two locations:
 1.  `$HOME/.config/pm_devices.cfg` (Global configuration)
@@ -65,13 +66,13 @@ knulli-dev = Knulli,knulli.local
 Use one of the following exact strings for the `<CFW>` value in your config file:
 
 -   `muOS`
--   `muOS2`
+-   `muOS2` - 2 sdcard install
 -   `AmberELEC`
 -   `ROCKNIX`
 -   `JELOS`
 -   `UnofficialOS`
 -   `ArkOS`
--   `ArkOS2`
+-   `ArkOS2` - 2 sdcard install
 -   `Knulli`
 -   `Batocera`
 
@@ -84,6 +85,7 @@ Use one of the following exact strings for the `<CFW>` value in your config file
 Most commands use a `<hosts>` argument. This is a colon-separated (`:`) string that can contain any combination of:
 -   **An alias** from your `pm_devices.cfg` file (e.g., `ark353v`).
 -   **An explicit definition** in the format `CFW,IP` (e.g., `muOS,192.168.0.99`).
+-   The special keyword **`ALL`**, which targets every host alias defined in your config files.
 
 **Example `<hosts>` string:** `ark353v:amber351:muOS,192.168.0.99`
 
@@ -101,8 +103,8 @@ pm_helper install <hosts> <zip_file>
 # Install a port on a single device using an alias
 pm_helper install ark353v ./MyGame.zip
 
-# Install on multiple devices, including one defined explicitly
-pm_helper install amber351:mucube:ArkOS,192.168.0.120 ./AnotherGame.zip
+# Install a port on ALL configured devices
+pm_helper install ALL ./AnotherGame.zip
 ```
 
 ---
@@ -114,10 +116,6 @@ Updates an existing port by syncing a new launch script and data directory. This
 ```sh
 pm_helper update <hosts> <port_script.sh> <port_directory/>
 ```
-**Arguments:**
-- `<port_script.sh>`: The path to the port's launch script (e.g., `"My Game.sh"`).
-- `<port_directory/>`: The path to the port's data directory (e.g., `mygamedata/`).
-
 **Example:**
 ```sh
 # Update a script and its data folder on two devices
@@ -141,13 +139,10 @@ pm_helper scp <hosts> <destination> <file1> [file2...]
   - `HOME`: The user's home directory (`~`).
 - `<file(s)>`: One or more local files or directories to copy.
 
-**Examples:**
+**Example:**
 ```sh
-# Copy a new icon into a port's asset directory on one device
-pm_helper scp mucube PORT_DATA/mygame/assets/ icon.png
-
-# Copy GOG installer files to a specific data folder on multiple devices
-pm_helper scp ark353v:amber351 PORT_DATA/gamename/ gog_installer-*.bin
+# Copy GOG installer files to a specific data folder on all devices
+pm_helper scp ALL PORT_DATA/gamename/ gog_installer-*.bin
 ```
 
 ---
@@ -164,25 +159,38 @@ pm_helper harbourmaster <hosts> <command_and_args>
 # Check the status of a runtime file on a device
 pm_helper harbourmaster mucube runtime_check "mygame_0.2.squashfs"
 
-# List all installed ports on multiple devices
-pm_helper harbourmaster ark353v:amber351 list
+**Syntax:**
+```sh
+pm_helper host_add [-g] <alias> <cfw> <ip_address>
+```
+**Arguments:**
+- `-g`: Use this flag to modify the **global** config file (`~/.config/pm_devices.cfg`). If omitted, the local file (`./pm_devices.cfg`) is used.
+
+**Examples:**
+```sh
+# Add a new device to the local config
+pm_helper host_add rg353v ArkOS2 192.168.1.123
+
+# Add a device to the global config
+pm_helper host_add -g odin2 ROCKNIX 192.168.1.124
 ```
 
 ---
 
-### `ssh`
-Opens an interactive SSH session to a **single** device.
+### `host_del`
+Deletes a host alias from your configuration file.
 
 **Syntax:**
 ```sh
-pm_helper ssh <single_host>
+pm_helper host_del [-g] <alias>
 ```
-**Note:** This command will fail if the `<single_host>` resolves to more than one device.
+**Arguments:**
+- `-g`: Use this flag to modify the **global** config file.
 
 **Example:**
 ```sh
-# SSH into a device using its alias
-pm_helper ssh ark353v
+# Remove a device from the local config
+pm_helper host_del rg353v
 ```
 
 ---
@@ -197,6 +205,20 @@ pm_helper hosts
 
 ---
 
+### `ssh`
+Opens an interactive SSH session to a **single** device. The `ALL` keyword is not supported.
+
+**Syntax:**
+```sh
+pm_helper ssh <single_host>
+```
+**Example:**
+```sh
+pm_helper ssh odin2
+```
+
+---
+
 ### `help`
 Shows the main help message or help for a specific command.
 
@@ -204,10 +226,6 @@ Shows the main help message or help for a specific command.
 ```sh
 pm_helper help
 pm_helper <command> --help
-```
-**Example:**
-```sh
-pm_helper install --help
 ```
 
 ## License
