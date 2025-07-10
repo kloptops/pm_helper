@@ -10,6 +10,13 @@
 # CHANGELOG
 # ==============================================================================
 #
+# v3.6 - (Current) Added Device Management Commands
+#      - Added `host_add` command to add or update a host alias in the
+#        local or global configuration file.
+#      - Added `host_del` command to remove a host alias.
+#      - Both commands use the `-g` flag to target the global config file and
+#        safely modify files using a temporary-file pattern.
+#
 # v3.5 - (Current) Added Remote Command Debugging
 #      - Added a `debug()` function to print commands before execution.
 #      - Implemented debug logging for all remote commands (`ssh`, `scp`, `rsync`)
@@ -371,6 +378,90 @@ cmd_hosts() {
     fi
 }
 
+cmd_host_add() {
+    global_flag=0
+    if [ "$1" = "-g" ]; then
+        global_flag=1
+        shift
+    fi
+
+    [ $# -ne 3 ] && die "Usage: pm_helper host_add [-g] <alias> <cfw> <ipaddress>"
+    alias=$1
+    cfw=$2
+    ip=$3
+
+    if [ $global_flag -eq 1 ]; then
+        cfg_file="$HOME/.config/pm_devices.cfg"
+        location="global"
+        # Ensure the directory exists
+        mkdir -p "$(dirname "$cfg_file")"
+    else
+        cfg_file="$PWD/pm_devices.cfg"
+        location="local"
+    fi
+    
+    # Create the file if it doesn't exist
+    touch "$cfg_file"
+
+    # Use a temporary file for safe editing
+    tmp_file=$(mktemp)
+    # Ensure temp file is cleaned up on exit
+    trap 'rm -f "$tmp_file"' EXIT
+
+    # Check if the alias already exists to provide a better message
+    if grep -q "^[[:space:]]*$alias[[:space:]]*=" "$cfg_file"; then
+        action="Updated"
+        # Remove the old entry
+        grep -v "^[[:space:]]*$alias[[:space:]]*=" "$cfg_file" > "$tmp_file"
+        mv "$tmp_file" "$cfg_file"
+    else
+        action="Added"
+    fi
+
+    # Add the new or updated entry to the file
+    echo "$alias = $cfw,$ip" >> "$cfg_file"
+    success "$action alias '$alias' in $location configuration ($cfg_file)"
+}
+
+cmd_host_del() {
+    global_flag=0
+    if [ "$1" = "-g" ]; then
+        global_flag=1
+        shift
+    fi
+
+    [ $# -ne 1 ] && die "Usage: pm_helper host_del [-g] <alias>"
+    alias=$1
+
+    if [ $global_flag -eq 1 ]; then
+        cfg_file="$HOME/.config/pm_devices.cfg"
+        location="global"
+    else
+        cfg_file="$PWD/pm_devices.cfg"
+        location="local"
+    fi
+
+    if [ ! -f "$cfg_file" ]; then
+        error "Configuration file not found: $cfg_file"
+        return 1
+    fi
+    
+    # Check if the alias exists before trying to delete
+    if ! grep -q "^[[:space:]]*$alias[[:space:]]*=" "$cfg_file"; then
+        error "Alias '$alias' not found in $location configuration."
+        return 1
+    fi
+
+    tmp_file=$(mktemp)
+    trap 'rm -f "$tmp_file"' EXIT
+
+    # Filter out the line with the alias
+    grep -v "^[[:space:]]*$alias[[:space:]]*=" "$cfg_file" > "$tmp_file"
+    mv "$tmp_file" "$cfg_file"
+
+    success "Deleted alias '$alias' from $location configuration ($cfg_file)"
+}
+
 # ==============================================================================
 # HELP SYSTEM
 # ==============================================================================
@@ -387,6 +478,8 @@ show_help() {
     printf "%b\n" "  ${C_CYAN}scp${C_RESET}             Copy files to a predefined directory on devices."
     printf "%b\n" "  ${C_CYAN}ssh${C_RESET}             Connect to a single device."
     printf "%b\n" "  ${C_CYAN}hosts${C_RESET}           List all configured host aliases."
+    printf "%b\n" "  ${C_CYAN}host_add${C_RESET}        Add or update a host alias in the config."
+    printf "%b\n" "  ${C_CYAN}host_del${C_RESET}        Delete a host alias from the config."
     printf "%b\n" "  ${C_CYAN}help${C_RESET}            Show this help message."
     printf "\n"
     printf "%b\n" "Run '${C_BOLD}pm_helper <command> --help${C_RESET}' for command-specific help."
@@ -419,6 +512,16 @@ show_cmd_help() {
         printf "%b\n" "${C_BOLD}Usage: pm_helper hosts${C_RESET}"
         printf "%b\n" "Displays all configured host aliases."
         ;;
+    host_add)
+        printf "%b\n" "${C_BOLD}Usage: pm_helper host_add [-g] <alias> <cfw> <ipaddress>${C_RESET}"
+        printf "%b\n" "Adds or updates a host alias in the configuration file."
+        printf "%b\n" "  ${C_CYAN}-g${C_RESET} : Modify the global config (~/.config/pm_devices.cfg) instead of the local one."
+        ;;
+    host_del)
+        printf "%b\n" "${C_BOLD}Usage: pm_helper host_del [-g] <alias>${C_RESET}"
+        printf "%b\n" "Deletes a host alias from the configuration file."
+        printf "%b\n" "  ${C_CYAN}-g${C_RESET} : Modify the global config instead of the local one."
+        ;;
     *)
         error "No help available for unknown command '$cmd'"
         ;;
@@ -444,18 +547,22 @@ if [ -z "$COMMAND" ]; then
 fi
 shift
 
-load_aliases
-
 case "$COMMAND" in
-    install|update|harbourmaster|scp|ssh|hosts)
-        "cmd_$COMMAND" "$@"
-        ;;
-    help)
-        show_help
-        ;;
+    host_add|host_del) "cmd_$COMMAND" "$@" ;;
     *)
-        error "Unknown command: '$COMMAND'"
-        show_help
-        exit 1
+        load_aliases
+        case "$COMMAND" in
+            install|update|harbourmaster|scp|ssh|hosts)
+                "cmd_$COMMAND" "$@"
+                ;;
+            help)
+                show_help
+                ;;
+            *)
+                error "Unknown command: '$COMMAND'"
+                show_help
+                exit 1
+                ;;
+        esac
         ;;
 esac
