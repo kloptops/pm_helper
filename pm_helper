@@ -329,6 +329,29 @@ $resolved_hosts
 EOF
 }
 
+cmd_ssh() {
+    [ $# -ne 1 ] && die "Usage: pm_helper ssh <single_host>"
+ 
+    resolved_hosts=$(parse_host_list "$1")
+ 
+    [ -z "$resolved_hosts" ] && die "Host '$1' could not be resolved."
+ 
+    host_count=$(echo "$resolved_hosts" | wc -l | tr -d ' ')
+ 
+    if [ "$host_count" -ne 1 ]; then
+        error "The 'ssh' command can only be used with a single host."
+        warn "You provided an alias or string that resolved to $host_count hosts."
+        return 1
+    fi
+ 
+    cfw=$(echo "$resolved_hosts" | cut -d';' -f1)
+    ip=$(echo "$resolved_hosts" | cut -d';' -f2)
+    user=$(echo "$resolved_hosts" | cut -d';' -f3)
+ 
+    info "Connecting to $cfw @ $ip as user $user..."
+    ssh "$user@$ip"
+}
+
 cmd_scp() {
     [ $# -lt 3 ] && die "Usage: pm_helper scp <hosts> <DEST_DIR/path> <file1> [file2...]"
     hosts_str=$1
@@ -338,7 +361,11 @@ cmd_scp() {
     if [ "$hosts_str" = "ALL" ]; then
         info "Resolving 'ALL' to all defined hosts..."
         hosts_str=$(get_all_aliases_string)
-        if [ -z "$hosts_str" ]; then die "No host aliases are defined. Cannot use 'ALL'."; fi
+
+        if [ -z "$hosts_str" ]; then
+            die "No host aliases are defined. Cannot use 'ALL'.";
+        fi
+
         debug "Expanded 'ALL' to: $hosts_str"
     fi
 
