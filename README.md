@@ -65,16 +65,17 @@ knulli-dev = Knulli,knulli.local
 
 Use one of the following exact strings for the `<CFW>` value in your config file:
 
--   `muOS`
--   `muOS2` - 2 sdcard install
--   `AmberELEC`
--   `ROCKNIX`
--   `JELOS`
--   `UnofficialOS`
--   `ArkOS`
--   `ArkOS2` - 2 sdcard install
--   `Knulli`
--   `Batocera`
+- `AmberELEC`
+- `ArkOS`
+- `ArkOS2` - 2 sdcard install
+- `Batocera`
+- `JELOS`
+- `Knulli`
+- `muOS`
+- `muOS2` - 2 sdcard install
+- `RetroDECK`
+- `ROCKNIX`
+- `UnofficialOS`
 
 ---
 
