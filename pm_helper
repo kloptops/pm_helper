@@ -10,6 +10,12 @@
 # CHANGELOG
 # ==============================================================================
 #
+# v3.8 - (Current) Added Alias Scoping and CFW Extensibility
+#      - The script now sources an optional ~/.config/pm_cfw.cfg for user-defined
+#        or overridden CFW definitions.
+#      - Added global flags `-l` (local-only) and `-g` (global-only) to control
+#        which pm_devices.cfg file is loaded for alias resolution.
+#
 # v3.7 - (Current) Added 'ALL' Keyword for Hosts
 #      - Added the ability to use 'ALL' as the <hosts> argument to target every
 #        defined alias in the config files for install, update, scp, and
@@ -78,38 +84,13 @@ die() { error "$1"; exit 1; }
 # CFW INFORMATION
 # ==============================================================================
 
-KNOWN_CFWS="muOS muOS2 AmberELEC ROCKNIX JELOS UnofficialOS ArkOS ArkOS2 Knulli Batocera RetroDECK"
+KNOWN_CFWS="AmberELEC ArkOS ArkOS2 Batocera JELOS Knulli muOS muOS2 RetroDECK ROCKNIX UnofficialOS"
 
-# muOS (Single SD)
-CFW_muOS_USERNAME="root"
-CFW_muOS_PORTMASTER="/mnt/mmc/MUOS/PortMaster"
-CFW_muOS_PORT_DATA="/mnt/mmc/ports"
-CFW_muOS_PORT_SCRIPT="/mnt/mmc/ROMS/Ports"
-# muOS2 (Dual SD)
-CFW_muOS2_USERNAME="root"
-CFW_muOS2_PORTMASTER="/mnt/mmc/MUOS/PortMaster"
-CFW_muOS2_PORT_DATA="/mnt/sdcard/ports"
-CFW_muOS2_PORT_SCRIPT="/mnt/sdcard/ROMS/Ports"
 # AmberELEC
 CFW_AmberELEC_USERNAME="root"
 CFW_AmberELEC_PORTMASTER="/roms/ports/PortMaster"
 CFW_AmberELEC_PORT_DATA="/roms/ports"
 CFW_AmberELEC_PORT_SCRIPT="/roms/ports"
-# ROCKNIX
-CFW_ROCKNIX_USERNAME="root"
-CFW_ROCKNIX_PORTMASTER="/roms/ports/PortMaster"
-CFW_ROCKNIX_PORT_DATA="/roms/ports"
-CFW_ROCKNIX_PORT_SCRIPT="/roms/ports"
-# JELOS
-CFW_JELOS_USERNAME="root"
-CFW_JELOS_PORTMASTER="/roms/ports/PortMaster"
-CFW_JELOS_PORT_DATA="/roms/ports"
-CFW_JELOS_PORT_SCRIPT="/roms/ports"
-# UnofficialOS (was uOS)
-CFW_UnofficialOS_USERNAME="root"
-CFW_UnofficialOS_PORTMASTER="/roms/ports/PortMaster"
-CFW_UnofficialOS_PORT_DATA="/roms/ports"
-CFW_UnofficialOS_PORT_SCRIPT="/roms/ports"
 # ArkOS (Single SD)
 CFW_ArkOS_USERNAME="ark"
 CFW_ArkOS_PORTMASTER="/roms/tools/PortMaster"
@@ -120,21 +101,51 @@ CFW_ArkOS2_USERNAME="ark"
 CFW_ArkOS2_PORTMASTER="/roms2/tools/PortMaster"
 CFW_ArkOS2_PORT_DATA="/roms2/ports"
 CFW_ArkOS2_PORT_SCRIPT="/roms2/ports"
-# Knulli
-CFW_Knulli_USERNAME="root"
-CFW_Knulli_PORTMASTER="/userdata/system/.local/share/PortMaster"
-CFW_Knulli_PORT_DATA="/userdata/roms/ports"
-CFW_Knulli_PORT_SCRIPT="/userdata/roms/ports"
 # Batocera
 CFW_Batocera_USERNAME="root"
 CFW_Batocera_PORTMASTER="/userdata/system/.local/share/PortMaster"
 CFW_Batocera_PORT_DATA="/userdata/roms/ports"
 CFW_Batocera_PORT_SCRIPT="/userdata/roms/ports"
+# JELOS
+CFW_JELOS_USERNAME="root"
+CFW_JELOS_PORTMASTER="/roms/ports/PortMaster"
+CFW_JELOS_PORT_DATA="/roms/ports"
+CFW_JELOS_PORT_SCRIPT="/roms/ports"
+# Knulli
+CFW_Knulli_USERNAME="root"
+CFW_Knulli_PORTMASTER="/userdata/system/.local/share/PortMaster"
+CFW_Knulli_PORT_DATA="/userdata/roms/ports"
+CFW_Knulli_PORT_SCRIPT="/userdata/roms/ports"
+# muOS (Single SD)
+CFW_muOS_USERNAME="root"
+CFW_muOS_PORTMASTER="/mnt/mmc/MUOS/PortMaster"
+CFW_muOS_PORT_DATA="/mnt/mmc/ports"
+CFW_muOS_PORT_SCRIPT="/mnt/mmc/ROMS/Ports"
+# muOS2 (Dual SD)
+CFW_muOS2_USERNAME="root"
+CFW_muOS2_PORTMASTER="/mnt/mmc/MUOS/PortMaster"
+CFW_muOS2_PORT_DATA="/mnt/sdcard/ports"
+CFW_muOS2_PORT_SCRIPT="/mnt/sdcard/ROMS/Ports"
 # RetroDECK
 CFW_RetroDECK_USERNAME="deck"
 CFW_RetroDECK_PORTMASTER="/home/deck/.var/app/net.retrodeck.retrodeck/data/PortMaster"
 CFW_RetroDECK_PORT_DATA="/run/media/mmcblk0p1/retrodeck/PortMaster/ports/"
 CFW_RetroDECK_PORT_SCRIPT="/run/media/mmcblk0p1/retrodeck/roms/portmaster/"
+# ROCKNIX
+CFW_ROCKNIX_USERNAME="root"
+CFW_ROCKNIX_PORTMASTER="/roms/ports/PortMaster"
+CFW_ROCKNIX_PORT_DATA="/roms/ports"
+CFW_ROCKNIX_PORT_SCRIPT="/roms/ports"
+# UnofficialOS (was uOS)
+CFW_UnofficialOS_USERNAME="root"
+CFW_UnofficialOS_PORTMASTER="/roms/ports/PortMaster"
+CFW_UnofficialOS_PORT_DATA="/roms/ports"
+CFW_UnofficialOS_PORT_SCRIPT="/roms/ports"
+
+if [ -f "$HOME/.config/pm_cfw.cfg" ]; then
+    # Add custom firmwares here.
+    . "$HOME/.config/pm_cfw.cfg"
+fi
 
 # ==============================================================================
 # HOST STUFF
@@ -147,23 +158,33 @@ get_all_aliases_string() {
 }
 
 load_aliases() {
+    # This internal function does the actual file processing
     _process_cfg() {
         cfg_file=$1
         if [ -f "$cfg_file" ]; then
             while IFS='=' read -r key val; do
-                case "$key" in
-                    ''|'#'*) continue ;;
-                esac
-                key=$(echo "$key" | tr -d '[:space:]')
-                val=$(echo "$val" | tr -d '[:space:]')
-                if [ -n "$key" ] && [ -n "$val" ]; then
-                    eval "ALIAS_${key}=\"\$val\""
-                fi
+                case "$key" in ''|'#'*) continue ;; esac
+                key=$(echo "$key" | tr -d '[:space:]'); val=$(echo "$val" | tr -d '[:space:]')
+                if [ -n "$key" ] && [ -n "$val" ]; then eval "ALIAS_${key}=\"\$val\""; fi
             done < "$cfg_file"
         fi
     }
-    _process_cfg "$HOME/.config/pm_devices.cfg"
-    _process_cfg "$PWD/pm_devices.cfg"
+
+    # The global `alias_scope` variable controls which files are read
+    case "$alias_scope" in
+        "local")
+            info "Loading aliases from LOCAL config only."
+            _process_cfg "$PWD/pm_devices.cfg"
+            ;;
+        "global")
+            info "Loading aliases from GLOBAL config only."
+            _process_cfg "$HOME/.config/pm_devices.cfg"
+            ;;
+        *) # Default case
+            _process_cfg "$HOME/.config/pm_devices.cfg"
+            _process_cfg "$PWD/pm_devices.cfg"
+            ;;
+    esac
 }
 
 resolve_host_string() {
@@ -426,6 +447,31 @@ $resolved_hosts
 EOF
 }
 
+cmd_cfws() {
+    info "Listing all known Custom Firmware configurations"
+    
+    # Temporarily change IFS to split the KNOWN_CFWS string
+    old_ifs=$IFS
+    IFS=' '
+    
+    for cfw_name in $KNOWN_CFWS; do
+        printf "\n%b%s%b\n" "$C_BLUE" "$cfw_name" "$C_RESET"
+        
+        # Use eval to dynamically get the value of each variable
+        eval "user_var=\$CFW_${cfw_name}_USERNAME"
+        eval "pm_var=\$CFW_${cfw_name}_PORTMASTER"
+        eval "data_var=\$CFW_${cfw_name}_PORT_DATA"
+        eval "script_var=\$CFW_${cfw_name}_PORT_SCRIPT"
+        
+        printf "  %-12s %s\n" "USERNAME:" "$user_var"
+        printf "  %-12s %s\n" "PORTMASTER:" "$pm_var"
+        printf "  %-12s %s\n" "PORT_DATA:" "$data_var"
+        printf "  %-12s %s\n" "PORT_SCRIPT:" "$script_var"
+    done
+    
+    IFS=$old_ifs
+}
+
 cmd_hosts() {
     info "Host aliases defined in configuration files"
     printf "%bNote: Local definitions ($PWD/pm_devices.cfg) override global ones.%b\n" "$C_YELLOW" "$C_RESET"
@@ -552,10 +598,14 @@ cmd_host_del() {
 # HELP SYSTEM
 # ==============================================================================
 show_help() {
-    # FIX: Use printf with %b to correctly interpret ANSI color codes.
     printf "%b\n" "${C_BOLD}pm_helper${C_RESET} - A tool for managing test ports on multiple devices."
     printf "\n"
-    printf "%b\n" "${C_BOLD}Usage:${C_RESET} pm_helper <command> [options...]"
+    # UPDATED: New usage string
+    printf "%b\n" "${C_BOLD}Usage:${C_RESET} pm_helper [-l|-g] <command> [options...]"
+    printf "\n"
+    printf "%b\n" "${C_YELLOW}Scope Flags (optional):${C_RESET}"
+    printf "%b\n" "  ${C_CYAN}-l${C_RESET} : Use only the local ./pm_devices.cfg for aliases."
+    printf "%b\n" "  ${C_CYAN}-g${C_RESET} : Use only the global ~/.config/pm_devices.cfg for aliases."
     printf "\n"
     printf "%b\n" "${C_YELLOW}Available Commands:${C_RESET}"
     printf "%b\n" "  ${C_CYAN}install${C_RESET}         Install a port .zip file."
@@ -563,6 +613,7 @@ show_help() {
     printf "%b\n" "  ${C_CYAN}harbourmaster${C_RESET}   Run a raw command with harbourmaster."
     printf "%b\n" "  ${C_CYAN}scp${C_RESET}             Copy files to a predefined directory on devices."
     printf "%b\n" "  ${C_CYAN}ssh${C_RESET}             Connect to a single device."
+    printf "%b\n" "  ${C_CYAN}cfws${C_RESET}            List all supported CFW and their variables."
     printf "%b\n" "  ${C_CYAN}hosts${C_RESET}           List all configured host aliases."
     printf "%b\n" "  ${C_CYAN}host_add${C_RESET}        Add or update a host alias in the config."
     printf "%b\n" "  ${C_CYAN}host_del${C_RESET}        Delete a host alias from the config."
@@ -604,6 +655,12 @@ show_cmd_help() {
         printf "%b\n" "Opens an interactive SSH session to a single specified host."
         printf "\n"
         ;;
+    cfws)
+        printf "%b\n" "${C_BOLD}Usage: pm_helper cfws${C_RESET}"
+        printf "\n"
+        printf "%b\n" "List all supported CFW and their variables."
+        printf "\n"
+        ;;
     hosts)
         printf "%b\n" "${C_BOLD}Usage: pm_helper hosts${C_RESET}"
         printf "\n"
@@ -634,9 +691,25 @@ show_cmd_help() {
 # MAIN SCRIPT LOGIC
 # ==============================================================================
 
+# Default alias scope
+alias_scope="default"
+
+# Check for optional scope flags BEFORE processing the command
+case "$1" in
+    -l)
+        alias_scope="local"
+        shift
+        ;;
+    -g)
+        alias_scope="global"
+        shift
+        ;;
+esac
+
 # Check for command-specific help request
 for arg in "$@"; do
     if [ "$arg" = "--help" ]; then
+        # We need to pass the original command, not the flags
         show_cmd_help "$1"
         exit 0
     fi
@@ -650,11 +723,15 @@ fi
 shift
 
 case "$COMMAND" in
-    host_add|host_del) "cmd_$COMMAND" "$@" ;;
+    host_add|host_del)
+        # These commands don't need aliases loaded beforehand
+        "cmd_$COMMAND" "$@"
+        ;;
     *)
+        # Load aliases according to the scope set earlier
         load_aliases
         case "$COMMAND" in
-            install|update|harbourmaster|scp|ssh|hosts)
+            install|update|harbourmaster|scp|cfws|ssh|hosts)
                 "cmd_$COMMAND" "$@"
                 ;;
             help)
