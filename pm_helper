@@ -78,7 +78,7 @@ die() { error "$1"; exit 1; }
 # CFW INFORMATION
 # ==============================================================================
 
-KNOWN_CFWS="muOS muOS2 AmberELEC ROCKNIX JELOS UnofficialOS ArkOS ArkOS2 Knulli Batocera"
+KNOWN_CFWS="muOS muOS2 AmberELEC ROCKNIX JELOS UnofficialOS ArkOS ArkOS2 Knulli Batocera RetroDECK"
 
 # muOS (Single SD)
 CFW_muOS_USERNAME="root"
@@ -130,6 +130,11 @@ CFW_Batocera_USERNAME="root"
 CFW_Batocera_PORTMASTER="/userdata/system/.local/share/PortMaster"
 CFW_Batocera_PORT_DATA="/userdata/roms/ports"
 CFW_Batocera_PORT_SCRIPT="/userdata/roms/ports"
+# RetroDECK
+CFW_RetroDECK_USERNAME="deck"
+CFW_RetroDECK_PORTMASTER="/home/deck/.var/app/net.retrodeck.retrodeck/data/PortMaster"
+CFW_RetroDECK_PORT_DATA="/run/media/mmcblk0p1/retrodeck/PortMaster/ports/"
+CFW_RetroDECK_PORT_SCRIPT="/run/media/mmcblk0p1/retrodeck/roms/portmaster/"
 
 # ==============================================================================
 # HOST STUFF
