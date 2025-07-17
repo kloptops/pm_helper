@@ -10,6 +10,12 @@
 # CHANGELOG
 # ==============================================================================
 #
+# v3.9 - (Current) Fixed Host String Parsing
+#      - Resolved a "bad substitution" error that occurred when providing an
+#        explicit 'CFW,IP' host string on the command line.
+#      - Corrected the logic in `resolve_host_string` to check for an alias
+#        only when the input string does not contain a comma.
+#
 # v3.8 - (Current) Added Alias Scoping and CFW Extensibility
 #      - The script now sources an optional ~/.config/pm_cfw.cfg for user-defined
 #        or overridden CFW definitions.
@@ -191,20 +197,38 @@ resolve_host_string() {
     host_str=$1
     cfw=""
     ip=""
-    eval "resolved_alias=\${ALIAS_${host_str}:-\"\"}"
-    if [ -n "$resolved_alias" ]; then
-        host_str=$resolved_alias
-    fi
+
+    # FIX: Check if the input is an alias BEFORE trying to parse it as CFW,IP.
+    # An explicit CFW,IP will contain a comma; an alias will not.
+    case "$host_str" in
+        # Does NOT contain a comma, so it must be an alias.
+        *,*)
+            : # This is a no-op. String already looks like CFW,IP.
+            ;;
+        *)
+            # No comma found, so try to resolve it as an alias.
+            eval "resolved_alias=\${ALIAS_${host_str}:-\"\"}"
+            if [ -n "$resolved_alias" ]; then
+                # It was a valid alias, so update host_str with the resolved value.
+                host_str=$resolved_alias
+            fi
+            ;;
+    esac
+
+    # Now, parse the final host_str which must be in CFW,IP format.
     case "$host_str" in
         *,*)
             ip=$(echo "$host_str" | cut -d, -f2)
             cfw=$(echo "$host_str" | cut -d, -f1)
             ;;
         *)
-            error "Invalid host format: '$host_str'. Must be an alias or 'CFW,IP'."
+            # If we get here, it was not an explicit CFW,IP and it was not a valid alias.
+            error "Invalid host format: '$host_str'. Must be a valid alias or 'CFW,IP'."
             return 1
             ;;
     esac
+
+    # Validate the CFW and return the structured string.
     eval "user_var=\${CFW_${cfw}_USERNAME:-\"\"}"
     if [ -z "$user_var" ]; then
         error "Unknown CFW: '$cfw'. Supported: $KNOWN_CFWS"
